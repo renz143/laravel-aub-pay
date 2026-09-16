@@ -1,0 +1,11 @@
+# Test runner image.
+#
+# gmp is here for speed, not correctness: the JWE interop test decrypts with an independent
+# implementation, and an RSA *private*-key operation in pure PHP takes ~20 seconds per call. The
+# package itself only ever does the public-key half, which is fast with or without this — so no
+# consuming application needs gmp on our account.
+FROM php:8.3-cli
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgmp-dev \
+    && docker-php-ext-install gmp \
+    && rm -rf /var/lib/apt/lists/*
