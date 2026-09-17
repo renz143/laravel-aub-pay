@@ -46,9 +46,23 @@ class JweEncrypterTest extends TestCase
         $this->publicBare = (string) preg_replace('/-----[^-]+-----|\s+/', '', openssl_pkey_get_details($keypair)['key']);
     }
 
+    /**
+     * web-token v3 takes the key-encryption and content-encryption managers as two arguments; v4
+     * merged them into one. Both lines are installable — v4 needs PHP 8.2, so an 8.1 host resolves
+     * to v3 — so the shape is chosen from the constructor actually present rather than pinned.
+     */
+    private function decrypter(): JWEDecrypter
+    {
+        $constructor = (new \ReflectionClass(JWEDecrypter::class))->getConstructor();
+
+        return $constructor !== null && $constructor->getNumberOfRequiredParameters() >= 2
+            ? new JWEDecrypter(new AlgorithmManager([new RSAOAEP256()]), new AlgorithmManager([new A256CBCHS512()]))
+            : new JWEDecrypter(new AlgorithmManager([new RSAOAEP256(), new A256CBCHS512()]));
+    }
+
     private function decrypt(string $jwe): ?string
     {
-        $decrypter = new JWEDecrypter(new AlgorithmManager([new RSAOAEP256(), new A256CBCHS512()]));
+        $decrypter = $this->decrypter();
         $object = (new CompactSerializer())->unserialize($jwe);
 
         return $decrypter->decryptUsingKey($object, JWKFactory::createFromKey($this->privatePem), 0)

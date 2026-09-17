@@ -16,6 +16,7 @@
         "ext-json": "*",
         "ext-openssl": "*",
         "ext-simplexml": "*",
+        "guzzlehttp/guzzle": "^7.5",
         "illuminate/support": "^10.0|^11.0|^12.0",
         "illuminate/http": "^10.0|^11.0|^12.0"
     },
@@ -50,10 +51,7 @@
         }
     },
     "config": {
-        "sort-packages": true,
-        "platform": {
-            "php": "8.3.0"
-        }
+        "sort-packages": true
     },
     "minimum-stability": "stable",
     "prefer-stable": true

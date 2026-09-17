@@ -1,11 +1,22 @@
 # Test runner image.
 #
+# PHP_VERSION is a build argument because the package supports 8.1 through 8.3, and the dependency
+# tree it resolves to differs by more than patch levels: PHP 8.1 gets Laravel 10 and web-token v3,
+# PHP 8.3 gets Laravel 12 and web-token v4. Testing only the version the maintainer happens to run
+# is how a package ends up claiming a floor it has never executed on.
+#
 # gmp is here for speed, not correctness: the JWE interop test decrypts with an independent
 # implementation, and an RSA *private*-key operation in pure PHP takes ~20 seconds per call. The
 # package itself only ever does the public-key half, which is fast with or without this — so no
 # consuming application needs gmp on our account.
-FROM php:8.3-cli
+ARG PHP_VERSION=8.3
+FROM php:${PHP_VERSION}-cli
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgmp-dev \
+    && apt-get install -y --no-install-recommends libgmp-dev git unzip \
     && docker-php-ext-install gmp \
     && rm -rf /var/lib/apt/lists/*
+
+# Composer lives in the image so that each leg resolves against its own PHP version. Resolving on
+# the host and reusing the result would defeat the point of building more than one of these.
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_HOME=/tmp/composer

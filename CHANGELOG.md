@@ -25,6 +25,29 @@ First release. Extracted from the AUB Card Cashier integration in `prycegas-api`
 - `Testing\AubPayFake` for correctly-signed fake responses.
 - `aub-pay:ping` connectivity check.
 
+### Fixed
+
+- **`guzzlehttp/guzzle` is now a declared dependency.** The package has always driven the HTTP
+  client through `Illuminate\Support\Facades\Http`, which cannot send a request without Guzzle, but
+  never required it. Laravel 12's `laravel/framework` requires Guzzle itself, so on Laravel 12 it
+  was always present and the omission was invisible; Laravel 10 and 11 only *suggest* it, so the
+  package could install against them and then fail at the first call. This is what actually stood
+  between the package and the Laravel 10 support its constraints already advertised.
+- **Removed the `config.platform.php` pin of `8.3.0`.** It resolved the tree as though PHP were
+  always 8.3 regardless of the declared `^8.1` floor, which let an 8.2-only dependency
+  (`web-token/jwt-library` v4) be locked for a package claiming to run on 8.1. Resolution now
+  follows the PHP actually in use.
+- The JWE interoperability test builds its decrypter from whichever `JWEDecrypter` constructor is
+  installed. web-token v3 takes the key- and content-encryption managers separately and v4 merged
+  them into one, and the v3 line is what PHP 8.1 resolves to.
+
+### Added
+
+- `scripts/test.sh`, which runs the suite against PHP 8.1/Laravel 10, 8.2/Laravel 11 and
+  8.3/Laravel 12. `Dockerfile.test` takes a `PHP_VERSION` build argument and carries Composer, so
+  each leg resolves its own tree — the PHP version is what selects the Laravel and web-token
+  majors, so a single shared resolution would have tested one combination three times.
+
 ### Changed from the `prycegas-api` original
 
 Application-specific behaviour was deliberately left behind, because it is what made the original

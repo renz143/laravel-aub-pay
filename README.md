@@ -15,6 +15,22 @@ puts one facade in front of all three and keeps their differences where they bel
 Start with `cashier()`. It is the rail with production mileage, and it does the same job as
 `card()` without putting card numbers on your servers.
 
+## Requirements
+
+| | Supported | Notes |
+|---|---|---|
+| PHP | 8.1 – 8.3 | |
+| Laravel | 10, 11, 12 | |
+
+Every combination in that table is exercised by `scripts/test.sh`, not merely allowed by the version
+constraints. The one thing that differs by version is the optional direct card rail: its JWE
+encrypter can use `web-token/jwt-library`, whose v4 needs PHP 8.2, so PHP 8.1 resolves v3 instead.
+Both are supported, and `phpseclib` — the default provider — works on all of them.
+
+> Laravel 10 and 11 are past end of life and their remaining releases carry unpatched security
+> advisories. This package supporting them is not a recommendation to stay on them; if you are
+> choosing a version for a payment integration, choose 12.
+
 ## Install
 
 ```jsonc
@@ -233,13 +249,18 @@ Http::fake(['*' => AubPayFake::success(
 Http::fake(['*' => AubPayFake::error('30', 'INSUFFICIENT CARD LIMIT')]);   // deliberately unsigned
 ```
 
-Run the package's own suite with the bundled image (its `gmp` is purely to keep the JWE
-interoperability test fast):
+Run the package's own suite across every supported PHP and Laravel pairing:
 
 ```bash
-docker build -f Dockerfile.test -t aub-pay-test .
-docker run --rm -v "$PWD":/pkg -w /pkg aub-pay-test vendor/bin/phpunit
+scripts/test.sh          # PHP 8.1/Laravel 10, 8.2/Laravel 11, 8.3/Laravel 12
+scripts/test.sh 8.1      # one leg
 ```
+
+Each leg builds `Dockerfile.test` at that PHP version and re-resolves the tree inside it, because
+the PHP version is what selects the Laravel and web-token majors — resolving once on the host and
+reusing the result would test one combination three times. The image's `gmp` is purely to keep the
+JWE interoperability test fast; no consuming application needs it. Narrow a run with
+`PHPUNIT_ARGS='--filter=CashierClientTest' scripts/test.sh 8.3`.
 
 ## Where the vendor documentation is wrong
 
