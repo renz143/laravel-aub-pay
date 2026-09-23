@@ -1,0 +1,2 @@
+{{-- A "QR Ph" wordmark drawn in type, not the scheme's official logo; swap in that artwork if you hold it. --}}
+<span class="qrph" role="img" aria-label="QR Ph"><svg class="qrph-glyph" viewBox="0 0 14 14" aria-hidden="true"><rect width="6" height="6" rx="1.2" fill="#f7b500"/><rect x="8" width="6" height="6" rx="1.2" fill="#d8283a"/><rect y="8" width="6" height="6" rx="1.2" fill="#d8283a"/><rect x="8" y="8" width="6" height="6" rx="1.2" fill="#1f3f95"/></svg><span class="qrph-q" aria-hidden="true">QR</span><span class="qrph-p" aria-hidden="true">Ph</span></span>

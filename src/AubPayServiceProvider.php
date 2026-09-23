@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Prycegas\AubPay\Checkout\CheckoutService;
+use Prycegas\AubPay\Checkout\CheckoutUrls;
 use Prycegas\AubPay\Checkout\SettleCheckoutAttempt;
 use Prycegas\AubPay\Console\PingCommand;
 use Prycegas\AubPay\Events\PaymentFailed;
@@ -28,10 +29,16 @@ class AubPayServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->loadViewsFrom(__DIR__ . '/../resources/views', 'aub-pay');
+
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__ . '/../config/aub-pay.php' => $this->app->configPath('aub-pay.php'),
             ], 'aub-pay-config');
+
+            $this->publishes([
+                __DIR__ . '/../resources/views' => $this->app->resourcePath('views/vendor/aub-pay'),
+            ], 'aub-pay-views');
 
             $this->publishes([
                 __DIR__ . '/../database/migrations' => $this->app->databasePath('migrations'),
@@ -66,8 +73,8 @@ class AubPayServiceProvider extends ServiceProvider
     }
 
     /**
-     * The hosted checkout is opt-in: unlike the webhooks it keeps state and acts on payment events,
-     * so nothing of it exists — no tables, no listener — until it is switched on.
+     * The hosted checkout is opt-in: unlike the webhooks it serves customer-facing pages and keeps
+     * state, so nothing of it exists — no routes, no tables, no listener — until it is switched on.
      */
     private function registerCheckout(): void
     {
@@ -82,5 +89,22 @@ class AubPayServiceProvider extends ServiceProvider
         // Settled from the same events the webhooks fire, so a checkout is paid by exactly the
         // confirmations the rest of the package trusts. PaymentPending changes nothing to settle.
         Event::listen([PaymentSucceeded::class, PaymentFailed::class], SettleCheckoutAttempt::class);
+
+        $attributes = [
+            'middleware' => $checkout['middleware'] ?? ['web'],
+            'where' => ['checkoutSession' => '[0-9a-f]{32}'],
+        ];
+
+        if (filled($checkout['url'] ?? null)) {
+            $location = CheckoutUrls::parse($checkout['url']);
+            $attributes['domain'] = $location['host'];
+            $attributes['prefix'] = $location['prefix'];
+        } else {
+            $attributes['prefix'] = trim((string) ($checkout['path'] ?? 'checkout'), '/');
+        }
+
+        Route::group($attributes, function () {
+            $this->loadRoutesFrom(__DIR__ . '/../routes/checkout.php');
+        });
     }
 }
