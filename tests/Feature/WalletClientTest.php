@@ -2,6 +2,7 @@
 
 namespace Prycegas\AubPay\Tests\Feature;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
@@ -64,6 +65,107 @@ class WalletClientTest extends TestCase
 
         $this->assertSame('00020101021230550018QRPH_MERCHANT', $result->target());
         $this->assertSame('https://gateway.test/qrcode/code?uuid=abc', $result->codeImageUrl);
+    }
+
+    /**
+     * §5.4.2: QR Ph names the order by a fresh invoiceId and does not echo out_trade_no — so the
+     * result must fill that in from the request, or a caller storing `$result->outTradeNo` stores ''.
+     */
+    public function test_a_qr_ph_charge_returns_its_invoice_id_and_expiry(): void
+    {
+        Http::fake(['*' => AubPayFake::walletResponse([
+            'code_url' => '00020101021228760011ph.ppmi.p2m0111AUBKPHMMXXX',
+            'code_img_url' => 'https://pay.wepayez.com/pay/qrcode?uuid=abc',
+            'uuid' => 'abc',
+            'expiration_date' => '20260923153000',
+            'invoiceId' => '1234567890123456',
+        ], $this->signature())]);
+
+        $result = AubPay::wallet()->charge(new WalletCharge(
+            service: WalletService::InstapayQrV2,
+            outTradeNo: 'ORDER_100003',
+            totalFee: 275000,
+            body: 'Pryce Gas order',
+        ));
+
+        $this->assertSame('ORDER_100003', $result->outTradeNo);
+        $this->assertSame('1234567890123456', $result->invoiceId);
+        $this->assertSame('abc', $result->uuid);
+        $this->assertSame('https://pay.wepayez.com/pay/qrcode?uuid=abc', $result->codeImageUrl);
+        // GMT+8 on the wire, so 15:30 there is 07:30 UTC.
+        $this->assertSame('2026-09-23T07:30:00+00:00', $result->expiresAt->utc()->toIso8601String());
+    }
+
+    public function test_gateway_times_are_sent_as_gmt_plus_8_whatever_zone_they_arrive_in(): void
+    {
+        Http::fake(['*' => AubPayFake::walletResponse(['code_url' => 'x', 'code_img_url' => 'https://x.test/qr'], $this->signature())]);
+
+        AubPay::wallet()->charge(new WalletCharge(
+            service: WalletService::InstapayQrV2,
+            outTradeNo: 'ORDER_100004',
+            totalFee: 100,
+            body: 'Test',
+            // An app on UTC formatting this itself would send 20260923073000 — 7:30 in Manila,
+            // eight hours before the moment it meant.
+            expirationDate: CarbonImmutable::parse('2026-09-23 07:30:00', 'UTC'),
+        ));
+
+        Http::assertSent(function (Request $request) {
+            $fields = (array) simplexml_load_string($request->body(), 'SimpleXMLElement', LIBXML_NOCDATA);
+
+            $this->assertSame('pay.instapay.native.v2', (string) $fields['service']);
+            $this->assertSame('20260923153000', (string) $fields['expiration_date']);
+            $this->assertArrayNotHasKey('time_expire', $fields);
+
+            return true;
+        });
+    }
+
+    public function test_a_gateway_time_given_as_a_string_must_already_be_in_its_format(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/yyyyMMddHHmmss in GMT\+8/');
+
+        new WalletCharge(WalletService::InstapayQrV2, 'ORDER_100005', 100, 'body', expirationDate: '2026-09-23 15:30');
+    }
+
+    public function test_a_query_with_an_invoice_id_goes_to_the_instapay_service(): void
+    {
+        Http::fake(['*' => AubPayFake::walletResponse([
+            'out_trade_no' => 'ORDER_100003',
+            'transaction_id' => 'W-7',
+            'trade_state' => 'SUCCESS',
+            'total_fee' => '275000',
+            'invoice_id' => '1234567890123456',
+        ], $this->signature())]);
+
+        $transaction = AubPay::wallet()->query(outTradeNo: 'ORDER_100003', invoiceId: '1234567890123456');
+
+        $this->assertTrue($transaction->isPaid());
+        Http::assertSent(function (Request $request) {
+            $fields = (array) simplexml_load_string($request->body(), 'SimpleXMLElement', LIBXML_NOCDATA);
+
+            return (string) $fields['service'] === 'pay.instapay.query'
+                && (string) $fields['invoice_id'] === '1234567890123456'
+                && (string) $fields['out_trade_no'] === 'ORDER_100003';
+        });
+    }
+
+    /**
+     * §5.4.4 lists no trade_state for a QR Ph query. Its absence must read as "not yet", never as
+     * a failure, and the order must still be the one that was asked about.
+     */
+    public function test_a_qr_ph_query_without_a_trade_state_is_pending_not_failed(): void
+    {
+        Http::fake(['*' => AubPayFake::walletResponse([
+            'trade_type' => 'pay.instapay.native.v2',
+            'invoice_id' => '1234567890123456',
+        ], $this->signature())]);
+
+        $transaction = AubPay::wallet()->query(outTradeNo: 'ORDER_100003', invoiceId: '1234567890123456');
+
+        $this->assertTrue($transaction->isPending());
+        $this->assertSame('ORDER_100003', $transaction->orderId);
     }
 
     public function test_it_sends_signed_flat_xml_with_the_envelope_fields_filled_in(): void

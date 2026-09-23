@@ -33,27 +33,35 @@ class WalletClient
      */
     public function charge(WalletCharge $charge): WalletChargeResult
     {
-        return WalletChargeResult::fromFields(
-            $this->transport->post($charge->toArray($this->defaults))
-        );
+        $fields = $this->transport->post($charge->toArray($this->defaults));
+
+        // QR Ph's reply (§5.4.2) does not echo out_trade_no — it names the order by the invoiceId it
+        // has just minted — so the reference the charge was made under is filled in from the request.
+        return WalletChargeResult::fromFields($fields + ['out_trade_no' => $charge->outTradeNo]);
     }
 
     /**
      * Ask the gateway about an order. Supply the merchant's own reference, or AUB's
      * `transaction_id` — the gateway prefers the latter when both are given.
+     *
+     * A QR Ph order also needs the `invoiceId` its charge returned. Passing one switches the call
+     * to `pay.instapay.query` (§5.4.3), the service those orders are looked up through.
      */
-    public function query(?string $outTradeNo = null, ?string $transactionId = null): Transaction
+    public function query(?string $outTradeNo = null, ?string $transactionId = null, ?string $invoiceId = null): Transaction
     {
         if (blank($outTradeNo) && blank($transactionId)) {
             throw new InvalidArgumentException('A wallet query needs either an out_trade_no or a transaction_id.');
         }
 
-        return $this->toTransaction($this->transport->post(array_filter([
-            'service' => WalletService::Query->value,
+        $fields = $this->transport->post(array_filter([
+            'service' => blank($invoiceId) ? WalletService::Query->value : WalletService::InstapayQuery->value,
             'mch_id' => $this->defaults['mch_id'] ?? null,
             'out_trade_no' => $outTradeNo,
             'transaction_id' => $transactionId,
-        ], static fn ($value) => $value !== null && $value !== '')));
+            'invoice_id' => $invoiceId,
+        ], static fn ($value) => $value !== null && $value !== ''));
+
+        return $this->toTransaction($fields + array_filter(['out_trade_no' => $outTradeNo]));
     }
 
     /**
@@ -162,7 +170,9 @@ class WalletClient
             'CLOSED', 'REVOKED', 'PAYERROR' => TransactionResult::Failed,
             // An unrecognised state is treated as pending, never as failed: this gateway family
             // has added states over time, and guessing "failed" on an unknown one would cancel
-            // orders that were actually paid.
+            // orders that were actually paid. That covers an absent one too, which matters for
+            // QR Ph: §5.4.4 lists no trade_state in the pay.instapay.query reply at all, and until
+            // one is seen there the signed notification is what settles those orders.
             default => TransactionResult::Pending,
         };
 

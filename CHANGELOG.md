@@ -22,6 +22,12 @@ First release. Extracted from the AUB Card Cashier integration in `prycegas-api`
   `PaymentPending` / `NotificationReceived` events.
 - `ResponseCode` enum over the §6.1 table, sorting codes into configuration faults, request faults,
   declines and indeterminate outcomes.
+- **QR Ph (`InstapayQrV2`) support to the spec (§5.4)**:
+  - `WalletCharge` gains `expirationDate`. Its time fields accept a `DateTimeInterface` and convert it
+    to the gateway's GMT+8.
+  - `WalletChargeResult` gains `invoiceId`, `expiresAt` and `uuid`, and fills in the `out_trade_no`
+    the QR Ph reply leaves out.
+  - `query(invoiceId: …)` goes to `pay.instapay.query` (`WalletService::InstapayQuery`).
 - `Testing\AubPayFake` for correctly-signed fake responses.
 - `aub-pay:ping` connectivity check.
 

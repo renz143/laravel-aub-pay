@@ -190,6 +190,35 @@ return redirect($result->target());     // pay_url for webpay, code_url for QR
 Enable with `AUB_WALLET_ENABLED=true` plus `AUB_WALLET_MCH_ID` and `AUB_WALLET_API_KEY` — separate
 credentials from the card rail, and separate onboarding with AUB.
 
+### QR Ph
+
+`WalletService::InstapayQrV2` is QR Ph (§5.4). One code can be paid from any Philippine bank or
+e-wallet app. It differs from the other services in several ways, and the package handles each:
+
+```php
+$qr = AubPay::wallet()->charge(new WalletCharge(
+    service: WalletService::InstapayQrV2,
+    outTradeNo: 'ORDER_100001',
+    totalFee: 275000,
+    body: 'Pryce Gas order',
+    expirationDate: now()->addMinutes(15),   // a DateTimeInterface is sent as GMT+8
+));
+
+$qr->codeImageUrl;   // AUB's image of the code — show it
+$qr->invoiceId;      // store it: the order is looked up by it from now on
+$qr->expiresAt;      // when the code stops being payable
+
+AubPay::wallet()->query(outTradeNo: 'ORDER_100001', invoiceId: $qr->invoiceId);   // pay.instapay.query
+```
+
+- **Its expiry field is `expiration_date`, not `time_expire`.** Every time on this rail is GMT+8
+  wall-clock time with no zone marker. A `DateTimeInterface` passed to any of the time fields is
+  converted for you. Formatting `now()` yourself on a UTC app sends a time eight hours in the past.
+- **The reply echoes no `out_trade_no` and has no `transaction_id` yet.** The result's `outTradeNo`
+  is filled in from your request, and the transaction id arrives with the payment.
+- **It cannot be closed or refunded through the API** (§11.8). A code stays payable until it
+  expires, so keep the expiry short.
+
 ## Direct card API
 
 > ⚠ **This rail takes you from PCI-DSS SAQ-A to SAQ-D.** Raw PANs pass through your servers, which
@@ -298,3 +327,8 @@ Found the hard way; recorded so nobody re-derives them.
   a shared secret. Signed without it; `SHA256` mode is unaffected.
 - The UAT host (`paymentapi-uat.wepayez.com`) appears only in the vendor's demo code, not in the
   guide.
+- Whether `pay.instapay.query` returns `trade_state`. §5.4.4 lists none. If the live reply lacks it,
+  a QR Ph query reads as pending (never as failed). In that case the signed notification is the only
+  thing that settles a QR Ph payment.
+- Whether the live QR Ph charge reply spells it `invoiceId` (§5.4.2) or `invoice_id`, as every other
+  message does. Both are read.

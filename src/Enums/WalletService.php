@@ -15,6 +15,12 @@ namespace Prycegas\AubPay\Enums;
  *
  * Which of these a merchant may call is provisioned per-merchant by AUB. Calling one you are not
  * enabled for comes back as a routing or payment-type error, not as a permissions message.
+ *
+ * `InstapayQrV2` is **QR Ph** (§5.4), the national standard any Philippine bank or e-wallet app can
+ * scan, and it breaks this family's pattern in three places: its expiry is `expiration_date` rather
+ * than `time_expire`, its reply names the order by an `invoiceId` instead of echoing
+ * `out_trade_no`, and it is queried through `InstapayQuery` with that invoice id. It also cannot be
+ * closed or refunded through this API (§11.8), so an issued code stays payable until it expires.
  */
 enum WalletService: string
 {
@@ -31,6 +37,13 @@ enum WalletService: string
     case UnionPayQr = 'pay.upi.native.intl';
 
     case Query = 'unified.trade.query';
+
+    /**
+     * The Instapay lookup (§5.3.3, §5.4.3), keyed on the `invoice_id` a QR Ph or Instapay charge
+     * returned — a field the unified query has no slot for.
+     */
+    case InstapayQuery = 'pay.instapay.query';
+
     case Refund = 'unified.trade.refund';
     case RefundQuery = 'unified.trade.refundquery';
     case Close = 'unified.trade.close';
