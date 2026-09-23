@@ -19,6 +19,11 @@ class ConfigurationException extends RuntimeException
         );
     }
 
+    public static function featureDisabled(string $feature, string $configKey): self
+    {
+        return new self("The AUB {$feature} is disabled. Set `{$configKey}` to true in config/aub-pay.php.");
+    }
+
     public static function missing(string $configKey, string $what): self
     {
         return new self("No {$what} is configured (aub-pay.{$configKey}).");

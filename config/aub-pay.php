@@ -141,6 +141,85 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Hosted checkout — one page in front of the QR Ph and card rails
+    |---------------------------------------------------------------------------
+    |
+    | A checkout session is an order summary at an address of its own
+    | (https://checkout.example/{32 hex characters}) where the customer chooses how to pay: QR Ph
+    | through the wallet rail, or card through the cashier rail. The package serves the page, opens
+    | the payment with AUB, and fires CheckoutSessionPaid once one of them clears.
+    |
+    | It keeps state, so it ships a migration: run `php artisan migrate` after turning it on.
+    */
+
+    'checkout' => [
+        'enabled' => (bool) env('AUB_CHECKOUT_ENABLED', false),
+
+        /*
+         * Where the page lives. With a URL, its host becomes the route domain and every link the
+         * checkout hands out is built on it, so https://checkout.prycegas.com gives
+         * https://checkout.prycegas.com/{id} even for a session created from another host. The app
+         * must answer for that host. Leave it unset to serve under `path` on the app's own host
+         * instead, which is what you want locally.
+         */
+        'url' => env('AUB_CHECKOUT_URL'),
+        'path' => env('AUB_CHECKOUT_PATH', 'checkout'),
+
+        /*
+         * Minutes a session stays payable, and minutes each payment it opens — a QR code, a cashier
+         * order — stays payable within it.
+         *
+         * The second is the one that matters. Neither kind can be withdrawn once issued (QR Ph has
+         * no close, the cashier rail no cancel), so a customer who abandons a QR code for card can
+         * still scan it until it lapses. Keeping it short is the only control there is over paying
+         * twice.
+         */
+        'expires_after' => (int) env('AUB_CHECKOUT_EXPIRES_AFTER', 60),
+        'attempt_lifetime' => (int) env('AUB_CHECKOUT_ATTEMPT_LIFETIME', 15),
+
+        /*
+         * Seconds between gateway checks while a customer waits on the page. The notification is
+         * what normally settles a payment; this is the fallback for when it is late or lost.
+         */
+        'inquiry_interval' => (int) env('AUB_CHECKOUT_INQUIRY_INTERVAL', 15),
+
+        /*
+         * The buttons on offer, by key. Each is a Checkout\PaymentMethod: add a class here to offer
+         * another (a GCash redirect, say), then list its key in a session's paymentMethods.
+         */
+        'methods' => [
+            'qrph' => \Prycegas\AubPay\Checkout\Methods\QrPh::class,
+            'card' => \Prycegas\AubPay\Checkout\Methods\Card::class,
+        ],
+
+        'merchant' => [
+            // Falls back to app.name.
+            'name' => env('AUB_CHECKOUT_MERCHANT_NAME'),
+            // Square image for the header; the name's first letter is shown without one.
+            'logo_url' => env('AUB_CHECKOUT_LOGO_URL'),
+            // Linked from "By completing your purchase, you agree to …". Omitted when unset.
+            'privacy_url' => env('AUB_CHECKOUT_PRIVACY_URL'),
+        ],
+
+        /*
+         * Hex colours only. `accent_text` is the label on the accent button — dark by default,
+         * because white on this green does not meet contrast for body-size text.
+         */
+        'theme' => [
+            'header' => env('AUB_CHECKOUT_HEADER_COLOR', '#144037'),
+            'accent' => env('AUB_CHECKOUT_ACCENT_COLOR', '#15a349'),
+            'accent_text' => env('AUB_CHECKOUT_ACCENT_TEXT_COLOR', '#11272b'),
+        ],
+
+        /*
+         * `web` for the session, CSRF and route-model binding the page needs. The throttle is per
+         * IP and generous on purpose: a waiting page polls every few seconds.
+         */
+        'middleware' => ['web', 'throttle:120,1'],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Webhook routes
     |---------------------------------------------------------------------------
     |

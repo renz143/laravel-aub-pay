@@ -2,8 +2,12 @@
 
 namespace Prycegas\AubPay;
 
+use Illuminate\Container\Container as GlobalContainer;
+use Illuminate\Contracts\Container\Container;
 use Prycegas\AubPay\Card\CardClient;
 use Prycegas\AubPay\Cashier\CashierClient;
+use Prycegas\AubPay\Checkout\CheckoutService;
+use Prycegas\AubPay\Checkout\CheckoutUrls;
 use Prycegas\AubPay\Crypto\JweEncrypter;
 use Prycegas\AubPay\Crypto\JwsSigner;
 use Prycegas\AubPay\Crypto\ParameterSignature;
@@ -14,7 +18,8 @@ use Prycegas\AubPay\Http\XmlTransport;
 use Prycegas\AubPay\Wallet\WalletClient;
 
 /**
- * Entry point for all three rails: `AubPay::cashier()`, `AubPay::card()`, `AubPay::wallet()`.
+ * Entry point for all three rails: `AubPay::cashier()`, `AubPay::card()`, `AubPay::wallet()` —
+ * and for the hosted checkout built on two of them, `AubPay::checkout()`.
  *
  * Each rail is built lazily and memoised, so a project that only uses the Cashier rail never
  * constructs a wallet signer or touches the optional JWE dependency. The two rails that carry a
@@ -25,8 +30,10 @@ class AubPayManager
 {
     private array $clients = [];
 
-    public function __construct(private readonly array $config)
-    {
+    public function __construct(
+        private readonly array $config,
+        private readonly ?Container $container = null,
+    ) {
     }
 
     public function cashier(): CashierClient
@@ -79,6 +86,24 @@ class AubPayManager
                 'callback_url' => $wallet['callback_url'] ?? null,
                 'sign_type' => $wallet['sign_type'] ?? ParameterSignature::SHA256,
             ],
+        );
+    }
+
+    /**
+     * Hosted checkout sessions: a PayMongo-style page offering QR Ph (wallet rail) and card
+     * (cashier rail). Off by default — it serves customer-facing pages and keeps state in two
+     * tables, which is not something a package should do unasked.
+     */
+    public function checkout(): CheckoutService
+    {
+        if (! ($this->config['checkout']['enabled'] ?? false)) {
+            throw ConfigurationException::featureDisabled('hosted checkout', 'aub-pay.checkout.enabled');
+        }
+
+        return $this->clients['checkout'] ??= new CheckoutService(
+            $this,
+            new CheckoutUrls($this),
+            $this->container ?? GlobalContainer::getInstance(),
         );
     }
 
