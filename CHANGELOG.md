@@ -22,6 +22,14 @@ First release. Extracted from the AUB Card Cashier integration in `prycegas-api`
   `PaymentPending` / `NotificationReceived` events.
 - `ResponseCode` enum over the §6.1 table, sorting codes into configuration faults, request faults,
   declines and indeterminate outcomes.
+- **Hosted checkout**: `AubPay::checkout()`, off by default. It creates PayMongo-style checkout
+  sessions at `https://checkout.example/{32 hex}` with an order summary and two buttons: QR Ph (wallet
+  rail) and card (cashier page). Payments are settled from the existing payment events, and the
+  package fires `CheckoutSessionPaid` once per session. `CheckoutSessionOverpaid` fires when a second
+  payment clears, which AUB cannot prevent because nothing it issues can be withdrawn. Buttons are
+  `Checkout\PaymentMethod` implementations registered in config. The feature ships a migration and
+  publishable views. The rails' own objects stay AUB-shaped; the checkout is a layer beside them, not
+  a change to them.
 - **QR Ph (`InstapayQrV2`) support to the spec (§5.4)**:
   - `WalletCharge` gains `expirationDate`. Its time fields accept a `DateTimeInterface` and convert it
     to the gateway's GMT+8.

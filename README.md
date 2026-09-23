@@ -15,6 +15,9 @@ puts one facade in front of all three and keeps their differences where they bel
 Start with `cashier()`. It is the rail with production mileage, and it does the same job as
 `card()` without putting card numbers on your servers.
 
+On top of two of them, **`checkout()`** serves a PayMongo-style hosted checkout page that offers QR Ph
+(wallet rail) and card (cashier rail) side by side. It is opt-in; see [Hosted checkout](#hosted-checkout).
+
 ## Requirements
 
 | | Supported | Notes |
@@ -219,6 +222,101 @@ AubPay::wallet()->query(outTradeNo: 'ORDER_100001', invoiceId: $qr->invoiceId); 
 - **It cannot be closed or refunded through the API** (§11.8). A code stays payable until it
   expires, so keep the expiry short.
 
+## Hosted checkout
+
+A PayMongo-style checkout page in front of two rails. The order summary sits on the left. On the
+right are two buttons:
+
+- **Scan QR Ph code to pay**: the wallet rail's `pay.instapay.native.v2`, with the code shown on the
+  page.
+- **Card**: a redirect to AUB's cashier page.
+
+The package serves the page, opens the payment on whichever rail the customer picks, and tells
+you once it has cleared.
+
+```dotenv
+AUB_CHECKOUT_ENABLED=true
+AUB_CHECKOUT_URL=https://checkout.prycegas.com    # the app must answer for this host
+AUB_CHECKOUT_MERCHANT_NAME=PRYCEGAS
+AUB_CHECKOUT_PRIVACY_URL=https://prycegas.com/privacy
+```
+
+```bash
+php artisan migrate    # aub_checkout_sessions, aub_checkout_attempts
+```
+
+```php
+use Prycegas\AubPay\Requests\CheckoutBilling;
+use Prycegas\AubPay\Requests\CheckoutSessionRequest;
+use Prycegas\AubPay\Requests\LineItem;
+
+$session = AubPay::checkout()->create(new CheckoutSessionRequest(
+    lineItems: [
+        new LineItem('11 kg LPG Content', 135000, quantity: 2),   // unit price, minor units
+        new LineItem('Delivery Fee', 5000, imageUrl: 'https://cdn.example/delivery.png'),
+    ],
+    successUrl: route('orders.paid', $order),
+    cancelUrl: route('cart'),
+    referenceNumber: $order->reference,
+    description: $order->summary,
+    billing: new CheckoutBilling(name: $order->customer_name, email: $order->customer_email),
+    metadata: ['order_id' => $order->id],
+));
+
+return redirect($session->url());   // https://checkout.prycegas.com/5f1c0b7e9a2d4c3b8e6f0a1b2c3d4e5f
+```
+
+Fulfil on `CheckoutSessionPaid`. It fires once per session, after AUB has confirmed the payment
+and the amount has been checked against the session:
+
+```php
+protected $listen = [
+    \Prycegas\AubPay\Events\CheckoutSessionPaid::class => [ShipOrder::class],
+    \Prycegas\AubPay\Events\CheckoutSessionOverpaid::class => [ArrangeRefund::class],
+];
+```
+
+`AubPay::checkout()->find($id)` retrieves a session. `expire($id)` stops it taking new payments.
+
+**How it settles.** Each button press becomes its own AUB order (`CS_…`) on the rail its method uses.
+It is settled only by the package's own `PaymentSucceeded` / `PaymentFailed` events. Those come from
+three places:
+
+- the wallet rail's signed notification;
+- the cashier rail's notification, once it has been confirmed;
+- the page asking AUB while the customer waits, at most once per `inquiry_interval`.
+
+The browser is never believed. The card button's return trip to `/{id}/return` asks AUB what
+happened rather than reading the redirect.
+
+**The one thing AUB makes you live with: nothing issued can be withdrawn.** QR Ph has no close or
+refund API, and the cashier rail has no cancel. A customer who abandons a QR code for card can still
+scan the old code until it lapses. The checkout limits this in three ways:
+
+- it reuses a live attempt rather than issuing a second one;
+- it keeps each attempt short (`attempt_lifetime`, 15 minutes, never past the session's own expiry);
+- if a second payment clears anyway, it fires `CheckoutSessionOverpaid` and logs it at `critical`, so
+  someone can refund it.
+
+For the same reason, `expire()` stops new payments but cannot recall a code already on a
+customer's screen.
+
+| Route (on `AUB_CHECKOUT_URL`, else under `/checkout`) | |
+|---|---|
+| `GET /{id}` | the page, or its paid / expired state |
+| `POST /{id}/pay` | opens the chosen method's payment: card redirects to AUB, QR Ph goes to `/{id}/qr` |
+| `GET /{id}/qr`, `/{id}/qr/download` | the QR Ph code, and the same code as a file for customers on the same phone |
+| `GET /{id}/status` | polled by the page while a payment is open |
+| `GET\|POST /{id}/return` | where AUB's cashier page sends the customer back (CSRF-exempt) |
+
+The id is 32 hex characters from `random_bytes(16)`. It is the page's only credential, and the
+page shows the customer's name and email, so it is long enough that it cannot be guessed.
+
+To restyle the page, `php artisan vendor:publish --tag=aub-pay-views`. The QR Ph mark is typeset,
+not the scheme's official logo, so swap in that artwork if you have it. To offer another method,
+such as a GCash redirect, implement `Checkout\PaymentMethod` and register it under a key in
+`aub-pay.checkout.methods`.
+
 ## Direct card API
 
 > ⚠ **This rail takes you from PCI-DSS SAQ-A to SAQ-D.** Raw PANs pass through your servers, which
@@ -329,6 +427,6 @@ Found the hard way; recorded so nobody re-derives them.
   guide.
 - Whether `pay.instapay.query` returns `trade_state`. §5.4.4 lists none. If the live reply lacks it,
   a QR Ph query reads as pending (never as failed). In that case the signed notification is the only
-  thing that settles a QR Ph payment.
+  thing that settles a QR Ph payment, and the checkout's polling fallback helps card payments only.
 - Whether the live QR Ph charge reply spells it `invoiceId` (§5.4.2) or `invoice_id`, as every other
   message does. Both are read.
