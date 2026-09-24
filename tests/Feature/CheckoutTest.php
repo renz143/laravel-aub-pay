@@ -227,6 +227,7 @@ class CheckoutTest extends CheckoutTestCase
 
     public function test_a_refused_charge_brings_the_customer_back_with_a_message(): void
     {
+        config(['app.debug' => false]);
         $session = $this->openSession();
         Http::fake(['*' => AubPayFake::walletResponse([
             'err_code' => 'NOAUTH',
@@ -236,10 +237,36 @@ class CheckoutTest extends CheckoutTestCase
         $this->followingRedirects()
             ->post("{$session->url()}/pay", ['method' => 'qrph'])
             ->assertOk()
-            ->assertSee("We couldn't start your QR Ph payment");
+            ->assertSee("We couldn't start your QR Ph payment")
+            // The gateway's own wording is for whoever runs the shop, not for the customer.
+            ->assertDontSee('Merchant not enabled for this service')
+            ->assertDontSee('AUB answered');
 
         // Kept, and failed: the order id was issued and must never be offered again.
         $this->assertSame(CheckoutAttempt::FAILED, $session->attempts()->sole()->status);
+    }
+
+    /**
+     * What the live gateway said to a ₱2,750 QR Ph charge on a merchant account capped at ₱10: a
+     * protocol-level refusal, unsigned, with the reason in `message`. With APP_DEBUG on, the page
+     * says so rather than leaving it to the log.
+     */
+    public function test_with_app_debug_on_the_page_says_why_aub_refused(): void
+    {
+        config(['app.debug' => true]);
+        $session = $this->openSession();
+        Http::fake(['*' => Http::response(
+            '<xml><status>400</status><message><![CDATA[Payment amount must less than 10.00 PHP]]></message></xml>'
+        )]);
+
+        $this->followingRedirects()
+            ->post("{$session->url()}/pay", ['method' => 'qrph'])
+            ->assertOk()
+            ->assertSeeInOrder([
+                "We couldn't start your QR Ph payment",
+                'Debug',
+                'AUB answered: Payment amount must less than 10.00 PHP (code 400)',
+            ]);
     }
 
     public function test_a_method_the_session_does_not_offer_is_refused(): void

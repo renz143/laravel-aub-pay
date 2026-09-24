@@ -28,6 +28,8 @@ class CheckoutController
 
     private const NOTICE = 'aub_checkout_notice';
 
+    private const DEBUG = 'aub_checkout_debug';
+
     public function __construct(
         private readonly CheckoutService $checkout,
         private readonly CheckoutUrls $urls,
@@ -83,10 +85,15 @@ class CheckoutController
                 'message' => $e->getMessage(),
             ]);
 
-            return $this->toPage($session)->withInput()->with(
+            $redirect = $this->toPage($session)->withInput()->with(
                 self::ERROR,
                 "We couldn't start your {$method->label()} payment. Please try again, or choose another payment method."
             );
+
+            // The customer gets that sentence and nothing more: a gateway's wording is not for them.
+            // With APP_DEBUG on, the page also says what actually happened — a merchant limit, a
+            // service AUB has not switched on — instead of leaving it to be dug out of the log.
+            return config('app.debug') ? $redirect->with(self::DEBUG, self::reason($e)) : $redirect;
         }
 
         if ($attempt === null) {
@@ -209,6 +216,15 @@ class CheckoutController
         return $this->toPage($session);
     }
 
+    private static function reason(AubApiException|ConfigurationException $e): string
+    {
+        if ($e instanceof ConfigurationException) {
+            return "Configuration: {$e->getMessage()}";
+        }
+
+        return 'AUB answered: ' . $e->getMessage() . (filled($e->errorCode) ? " (code {$e->errorCode})" : '');
+    }
+
     private function latestQrAttempt(CheckoutSession $session): ?CheckoutAttempt
     {
         return $session->attempts()
@@ -260,6 +276,7 @@ class CheckoutController
             ],
             'error' => session(self::ERROR),
             'notice' => session(self::NOTICE),
+            'debug' => session(self::DEBUG),
         ])->withHeaders([
             'Cache-Control' => 'no-store, private',
             'X-Frame-Options' => 'DENY',

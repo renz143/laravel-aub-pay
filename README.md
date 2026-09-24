@@ -312,6 +312,11 @@ customer's screen.
 The id is 32 hex characters from `random_bytes(16)`. It is the page's only credential, and the
 page shows the customer's name and email, so it is long enough that it cannot be guessed.
 
+When AUB refuses to open a payment, the customer sees a generic "We couldn't start your … payment",
+and the reason is logged as `AUB would not open a checkout payment.` With `APP_DEBUG=true` the page
+shows the reason too, under a **Debug** tag, so a merchant limit or an unopened service is visible
+while testing. An example is "AUB answered: Payment amount must less than 10.00 PHP (code 400)".
+
 To restyle the page, `php artisan vendor:publish --tag=aub-pay-views`. The QR Ph mark is typeset,
 not the scheme's official logo, so swap in that artwork if you have it. To offer another method,
 such as a GCash redirect, implement `Checkout\PaymentMethod` and register it under a key in

@@ -121,6 +121,8 @@
         .banner { margin-bottom: 16px; padding: 12px 14px; border: 1px solid; border-radius: 6px; font-size: 14px; line-height: 20px; }
         .banner-error { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger); }
         .banner-notice { border-color: var(--notice-line); background: var(--notice-soft); color: var(--notice); }
+        .banner-debug { display: block; margin-top: 8px; padding-top: 8px; overflow-wrap: anywhere; border-top: 1px dashed var(--danger-line); font: 12px/18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+        .banner-debug b { margin-right: 6px; padding: 1px 5px; border-radius: 4px; background: var(--danger); color: #fff; font-weight: 600; }
 
         /* QR Ph */
         .back-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; color: var(--muted); font-size: 14px; font-weight: 500; text-decoration: none; }
